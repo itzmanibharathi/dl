@@ -11,18 +11,16 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// =======================
 // MongoDB connection
-mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/busbooking', {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
+// =======================
+mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/busbooking')
   .then(() => console.log('MongoDB Connected'))
-  .catch(err => console.log('MongoDB connection error:', err));
+  .catch(err => console.error('MongoDB connection error:', err));
 
 // =======================
 // Models
 // =======================
-
 const UserSchema = new mongoose.Schema({
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true },
@@ -104,7 +102,7 @@ app.post('/api/auth/register', async (req, res) => {
     const payload = { user: { id: user.id, role: user.role } };
     jwt.sign(payload, process.env.JWT_SECRET || 'secretkey123', { expiresIn: '7d' }, (err, token) => {
       if (err) throw err;
-      res.json({ token });
+      return res.json({ token });
     });
   } catch (err) {
     console.error(err);
@@ -126,22 +124,24 @@ app.post('/api/auth/login', async (req, res) => {
     const payload = { user: { id: user.id, role: user.role } };
     jwt.sign(payload, process.env.JWT_SECRET || 'secretkey123', { expiresIn: '7d' }, (err, token) => {
       if (err) throw err;
-      res.json({
+      return res.json({
         token,
         user: { id: user.id, name: user.name, email: user.email, phone: user.phone, role: user.role }
       });
     });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ msg: 'Server error' });
   }
 });
 
-// Get all buses (for search)
+// Get all buses
 app.get('/api/bus', async (req, res) => {
   try {
     const buses = await Bus.find();
-    res.json(buses);
+    return res.json(buses);
   } catch (err) {
+    console.error(err);
     res.status(500).json({ msg: 'Server error' });
   }
 });
@@ -154,21 +154,22 @@ app.get('/api/bus/:id', async (req, res) => {
       bus = await Bus.findOne({ qrValue: req.params.id });
     }
     if (!bus) return res.status(404).json({ msg: 'Bus not found' });
-    res.json(bus);
+    return res.json(bus);
   } catch (err) {
+    console.error(err);
     res.status(500).json({ msg: 'Server error' });
   }
 });
 
 // Create ticket (user books)
 app.post('/api/ticket', auth, async (req, res) => {
-  const { busId, from, to, distance, fare } = req.body;
+  const { busId, from, to, distance, fare, busNumber } = req.body;
 
   try {
     const ticket = new Ticket({
       user: req.user.id,
       bus: busId,
-      busNumber: req.body.busNumber,
+      busNumber,
       from,
       to,
       distance,
@@ -177,8 +178,9 @@ app.post('/api/ticket', auth, async (req, res) => {
       status: 'Pending'
     });
     await ticket.save();
-    res.json(ticket);
+    return res.json(ticket);
   } catch (err) {
+    console.error(err);
     res.status(500).json({ msg: 'Server error' });
   }
 });
@@ -187,8 +189,9 @@ app.post('/api/ticket', auth, async (req, res) => {
 app.get('/api/ticket/my', auth, async (req, res) => {
   try {
     const tickets = await Ticket.find({ user: req.user.id }).sort({ date: -1 });
-    res.json(tickets);
+    return res.json(tickets);
   } catch (err) {
+    console.error(err);
     res.status(500).json({ msg: 'Server error' });
   }
 });
@@ -202,7 +205,7 @@ app.post('/api/ticket/verify', auth, async (req, res) => {
   try {
     const ticket = await Ticket.findOne({
       $or: [
-        { id: ticketIdOrPaymentId },
+        { _id: ticketIdOrPaymentId },
         { paymentId: ticketIdOrPaymentId }
       ]
     });
@@ -212,13 +215,14 @@ app.post('/api/ticket/verify', auth, async (req, res) => {
     ticket.status = 'Verified';
     await ticket.save();
 
-    res.json({ msg: 'Ticket verified', ticket });
+    return res.json({ msg: 'Ticket verified', ticket });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ msg: 'Server error' });
   }
 });
 
-// Dummy payment update (in future replace with real Stripe webhook)
+// Dummy payment update
 app.post('/api/ticket/pay/:id', auth, async (req, res) => {
   try {
     const ticket = await Ticket.findById(req.params.id);
@@ -229,12 +233,16 @@ app.post('/api/ticket/pay/:id', auth, async (req, res) => {
     ticket.status = 'Paid';
     await ticket.save();
 
-    res.json(ticket);
+    return res.json(ticket);
   } catch (err) {
+    console.error(err);
     res.status(500).json({ msg: 'Server error' });
   }
 });
 
+// =======================
+// Start server
+// =======================
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
