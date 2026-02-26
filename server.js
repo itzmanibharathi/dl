@@ -40,7 +40,7 @@ const BusSchema = new mongoose.Schema(
         kmFromStart: { type: Number, required: true, min: 0 },
       },
     ],
-    fares: { type: Map, of: Number, default: {} }, // ← New: per-stop-pair fares
+    fares: { type: Map, of: Number, default: {} }, // per-stop-pair fares
     qrValue: { type: String, required: true, unique: true },
   },
   { timestamps: true }
@@ -127,8 +127,8 @@ app.post('/api/auth/register', async (req, res) => {
       }
     );
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ msg: 'Server error' });
+    console.error('Register error:', err);
+    res.status(500).json({ msg: 'Server error during registration' });
   }
 });
 
@@ -163,40 +163,36 @@ app.post('/api/auth/login', async (req, res) => {
       }
     );
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ msg: 'Server error' });
+    console.error('Login error:', err);
+    res.status(500).json({ msg: 'Server error during login' });
   }
 });
 
-// Add bus (admin only) — FIXED VERSION
+// Add bus (admin only) - Fixed
 app.post('/api/bus', auth, isAdmin, async (req, res) => {
   const { busNumber, routeFrom, routeTo, stops, fares, qrValue } = req.body;
 
   try {
-    // Required fields — removed farePerKm
     if (!busNumber || !routeFrom || !routeTo || !stops || !Array.isArray(stops) || stops.length < 2) {
       return res.status(400).json({
         msg: 'Required fields: busNumber, routeFrom, routeTo, and at least 2 stops'
       });
     }
 
-    // Auto-generate qrValue if missing
     const finalQrValue = qrValue || `QR-${busNumber.trim().replace(/\s+/g, '-')}-${Date.now()}`;
 
-    // Check duplicates
     let bus = await Bus.findOne({ busNumber });
     if (bus) return res.status(400).json({ msg: 'Bus number already exists' });
 
     bus = await Bus.findOne({ qrValue: finalQrValue });
     if (bus) return res.status(400).json({ msg: 'QR value already exists' });
 
-    // Create new bus
     bus = new Bus({
       busNumber,
       routeFrom,
       routeTo,
       stops,
-      fares: fares || {}, // per-pair fares
+      fares: fares || {},
       qrValue: finalQrValue,
     });
 
@@ -218,23 +214,31 @@ app.get('/api/bus', async (req, res) => {
     const buses = await Bus.find().sort({ createdAt: -1 });
     res.json(buses);
   } catch (err) {
-    console.error(err);
+    console.error('Get all buses error:', err);
     res.status(500).json({ msg: 'Server error' });
   }
 });
 
-// Get bus by ID or qrValue
+// Get bus by ID or qrValue - FIXED VERSION (prevents 500 crash)
 app.get('/api/bus/:id', async (req, res) => {
   try {
-    let bus = await Bus.findById(req.params.id);
-    if (!bus) {
-      bus = await Bus.findOne({ qrValue: req.params.id });
+    const param = req.params.id.trim();
+
+    // 1. Try as ObjectId if valid
+    if (mongoose.Types.ObjectId.isValid(param)) {
+      const busById = await Bus.findById(param);
+      if (busById) return res.json(busById);
     }
-    if (!bus) return res.status(404).json({ msg: 'Bus not found' });
-    res.json(bus);
+
+    // 2. Try as qrValue
+    const busByQr = await Bus.findOne({ qrValue: param });
+    if (busByQr) return res.json(busByQr);
+
+    // Not found
+    return res.status(404).json({ msg: 'Bus not found' });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ msg: 'Server error' });
+    console.error('Get bus error:', err.message, err.stack);
+    res.status(500).json({ msg: 'Server error while fetching bus' });
   }
 });
 
@@ -255,9 +259,8 @@ app.post('/api/ticket', auth, async (req, res) => {
 
     const calcDistance = endStop.kmFromStart - startStop.kmFromStart;
 
-    // Use pre-defined fare if available, else fallback
     const fareKey = `${from}-${to}`;
-    const farePerUnit = bus.fares.get(fareKey) || 1; // fallback to 1 if no fare defined
+    const farePerUnit = bus.fares.get(fareKey) || 1; // fallback
     const fare = calcDistance * farePerUnit * quantity;
 
     const ticket = new Ticket({
@@ -274,7 +277,7 @@ app.post('/api/ticket', auth, async (req, res) => {
     await ticket.save();
     res.json(ticket);
   } catch (err) {
-    console.error(err);
+    console.error('Create ticket error:', err);
     res.status(500).json({ msg: 'Server error' });
   }
 });
@@ -285,7 +288,7 @@ app.get('/api/ticket/my', auth, async (req, res) => {
     const tickets = await Ticket.find({ user: req.user.id }).sort({ date: -1 });
     res.json(tickets);
   } catch (err) {
-    console.error(err);
+    console.error('Get my tickets error:', err);
     res.status(500).json({ msg: 'Server error' });
   }
 });
@@ -295,12 +298,8 @@ app.post('/api/ticket/pay/:id', auth, async (req, res) => {
   try {
     const ticket = await Ticket.findById(req.params.id);
     if (!ticket) return res.status(404).json({ msg: 'Ticket not found' });
-    if (ticket.user.toString() !== req.user.id) {
-      return res.status(403).json({ msg: 'Not your ticket' });
-    }
-    if (ticket.status !== 'Pending') {
-      return res.status(400).json({ msg: 'Ticket already processed' });
-    }
+    if (ticket.user.toString() !== req.user.id) return res.status(403).json({ msg: 'Not your ticket' });
+    if (ticket.status !== 'Pending') return res.status(400).json({ msg: 'Ticket already processed' });
 
     ticket.paymentId = `PAY-${Math.random().toString(36).substring(7).toUpperCase()}`;
     ticket.status = 'Paid';
@@ -308,7 +307,7 @@ app.post('/api/ticket/pay/:id', auth, async (req, res) => {
 
     res.json(ticket);
   } catch (err) {
-    console.error(err);
+    console.error('Pay ticket error:', err);
     res.status(500).json({ msg: 'Server error' });
   }
 });
@@ -343,7 +342,7 @@ app.post('/api/ticket/verify', auth, isAdmin, async (req, res) => {
       },
     });
   } catch (err) {
-    console.error(err);
+    console.error('Verify ticket error:', err);
     res.status(500).json({ msg: 'Server error' });
   }
 });
