@@ -34,13 +34,13 @@ const BusSchema = new mongoose.Schema(
     busNumber: { type: String, required: true, unique: true },
     routeFrom: { type: String, required: true },
     routeTo: { type: String, required: true },
-    farePerKm: { type: Number, required: true, min: 0 },
     stops: [
       {
         name: { type: String, required: true },
         kmFromStart: { type: Number, required: true, min: 0 },
       },
     ],
+    fares: { type: Map, of: Number, default: {} }, // ← New: per-stop-pair fares
     qrValue: { type: String, required: true, unique: true },
   },
   { timestamps: true }
@@ -75,7 +75,6 @@ const Ticket = mongoose.model('Ticket', TicketSchema);
 const auth = async (req, res, next) => {
   const token = req.header('x-auth-token');
   if (!token) return res.status(401).json({ msg: 'No token, authorization denied' });
-
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secretkey123');
     req.user = decoded.user;
@@ -94,15 +93,9 @@ const isAdmin = (req, res, next) => {
 
 // ──────────────────────────────────────── ROUTES ────────────────────────────────────────
 
-// Auth - Register (works for both user & admin — admin can be created manually or via special flow)
+// Auth - Register
 app.post('/api/auth/register', async (req, res) => {
   const { name, email, phone, password, role = 'user' } = req.body;
-
-  // Optional: restrict who can register as admin (e.g. only via seed or special key)
-  if (role === 'admin') {
-    // In production: add secret key check or remove this option
-    // For now allowing it (you can restrict later)
-  }
 
   try {
     let user = await User.findOne({ email });
@@ -139,7 +132,7 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 
-// Auth - Login (same for user & admin)
+// Auth - Login
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
 
@@ -175,45 +168,47 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// Add bus (admin only)
+// Add bus (admin only) — FIXED VERSION
 app.post('/api/bus', auth, isAdmin, async (req, res) => {
-  const { busNumber, routeFrom, routeTo, farePerKm, stops, qrValue } = req.body;
+  const { busNumber, routeFrom, routeTo, stops, fares, qrValue } = req.body;
 
   try {
-    if (
-      !busNumber ||
-      !routeFrom ||
-      !routeTo ||
-      !farePerKm ||
-      !stops ||
-      stops.length < 2 ||
-      !qrValue
-    ) {
-      return res
-        .status(400)
-        .json({ msg: 'All fields required, at least 2 stops, qrValue needed' });
+    // Required fields — removed farePerKm
+    if (!busNumber || !routeFrom || !routeTo || !stops || !Array.isArray(stops) || stops.length < 2) {
+      return res.status(400).json({
+        msg: 'Required fields: busNumber, routeFrom, routeTo, and at least 2 stops'
+      });
     }
 
+    // Auto-generate qrValue if missing
+    const finalQrValue = qrValue || `QR-${busNumber.trim().replace(/\s+/g, '-')}-${Date.now()}`;
+
+    // Check duplicates
     let bus = await Bus.findOne({ busNumber });
     if (bus) return res.status(400).json({ msg: 'Bus number already exists' });
 
-    bus = await Bus.findOne({ qrValue });
+    bus = await Bus.findOne({ qrValue: finalQrValue });
     if (bus) return res.status(400).json({ msg: 'QR value already exists' });
 
+    // Create new bus
     bus = new Bus({
       busNumber,
       routeFrom,
       routeTo,
-      farePerKm: Number(farePerKm),
       stops,
-      qrValue,
+      fares: fares || {}, // per-pair fares
+      qrValue: finalQrValue,
     });
 
     await bus.save();
-    res.json(bus);
+
+    res.status(201).json({
+      msg: 'Bus added successfully',
+      bus,
+    });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ msg: 'Server error' });
+    console.error('Add bus error:', err);
+    res.status(500).json({ msg: 'Server error while adding bus' });
   }
 });
 
@@ -243,7 +238,7 @@ app.get('/api/bus/:id', async (req, res) => {
   }
 });
 
-// Create ticket (authenticated user)
+// Create ticket
 app.post('/api/ticket', auth, async (req, res) => {
   const { busId, busNumber, from, to, distance, quantity = 1 } = req.body;
 
@@ -260,10 +255,10 @@ app.post('/api/ticket', auth, async (req, res) => {
 
     const calcDistance = endStop.kmFromStart - startStop.kmFromStart;
 
-    // Optional: validate sent distance matches calculation
-    // if (calcDistance !== distance) return res.status(400).json({ msg: 'Invalid distance' });
-
-    const fare = calcDistance * bus.farePerKm * quantity;
+    // Use pre-defined fare if available, else fallback
+    const fareKey = `${from}-${to}`;
+    const farePerUnit = bus.fares.get(fareKey) || 1; // fallback to 1 if no fare defined
+    const fare = calcDistance * farePerUnit * quantity;
 
     const ticket = new Ticket({
       user: req.user.id,
@@ -318,16 +313,15 @@ app.post('/api/ticket/pay/:id', auth, async (req, res) => {
   }
 });
 
-// Verify ticket (admin only) — can use ticket _id or paymentId or qrValue if you store it
+// Verify ticket (admin only)
 app.post('/api/ticket/verify', auth, isAdmin, async (req, res) => {
-  const { identifier } = req.body; // can be ticket _id, paymentId, or qrValue
+  const { identifier } = req.body;
 
   try {
     const ticket = await Ticket.findOne({
       $or: [
         { _id: identifier },
         { paymentId: identifier },
-        // If you add qrValue to Ticket later: { qrValue: identifier }
       ],
     }).populate('bus');
 
