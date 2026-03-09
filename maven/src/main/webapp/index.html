@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manibharathi's Blog</title>
+    <style>
+        /* Reset margin/padding */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: Arial, sans-serif;
+        }
+
+        body {
+            background-color: white;
+            font-weight: bold;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        /* Navbar */
+        nav {
+            background-color: black;
+            color: white;
+            padding: 15px;
+        }
+
+        nav a {
+            color: white;
+            text-decoration: none;
+            margin-right: 20px;
+            font-weight: bold;
+        }
+
+        nav a:hover {
+            text-decoration: underline;
+        }
+
+        /* Container */
+        .container {
+            width: 80%;
+            margin: 20px auto;
+        }
+
+        h1 {
+            margin-bottom: 20px;
+        }
+
+        /* Blog content */
+        .blog-post {
+            margin-bottom: 30px;
+        }
+
+        /* Contact form */
+        form {
+            margin-top: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        input, textarea, button {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 15px;
+            font-weight: bold;
+        }
+
+        button {
+            background-color: black;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+
+        button:hover {
+            opacity: 0.8;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Navbar -->
+    <nav>
+        <a href="#home">Home</a>
+        <a href="#blog">Blog</a>
+        <a href="#contact">Contact</a>
+    </nav>
+
+    <div class="container">
+        <!-- Header -->
+        <h1>Welcome to Manibharathi's Blog</h1>
+
+        <!-- Blog Post -->
+        <div id="blog" class="blog-post">
+            <h2>My First Blog Post</h2>
+            <p>Hello! This is my first blog post. Stay tuned for more updates and articles about web development and technology.</p>
+        </div>
+
+        <!-- Contact Form -->
+        <div id="contact">
+            <h2>Contact Me</h2>
+            <form id="contactForm">
+                <label for="name">Name:</label>
+                <input type="text" id="name" placeholder="Your name" required>
+
+                <label for="email">Email:</label>
+                <input type="email" id="email" placeholder="Your email" required>
+
+                <label for="message">Message:</label>
+                <textarea id="message" placeholder="Your message" rows="5" required></textarea>
+
+                <button type="submit">Submit</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // Form submission alert
+        document.getElementById('contactForm').addEventListener('submit', function(e){
+            e.preventDefault(); // Prevent actual submission
+            alert('Completed');
+            this.reset(); // Optional: reset form fields
+        });
+    </script>
+
+</body>
+</html>
